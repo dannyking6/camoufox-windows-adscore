@@ -111,3 +111,46 @@ python3 win_profile.py https://votre-page.tld --click
 ```
 
 Voir `botresults/ADSCORE_WIN_ETAT.md` pour l'historique complet des tests.
+
+## Revalidation 22 nov 2026 — 7 proxy / 2 bot sur hozakuwe
+
+La recette a été **revalidée à l'identique** le 22 nov 2026 sur
+`hozakuwe.github.io/blog/` (AdscoreInit, patch embarqué), IP directe
+Datacamp PL **flaggée proxy/hosting** : **7 verdicts proxy, 2 bot**.
+
+### ⛔ Les erreurs qui ont produit les 2 bots (à ne JAMAIS refaire)
+
+| Erreur commise | Pourquoi ça flague |
+|---|---|
+| **`new_context(viewport=1440x900)` en PLUS du fingerprint épinglé `window=(1280,720)`** | incohérence écran : innerHeight > availHeight ⇒ **bot** (le piège documenté plus haut). Avec un fingerprint épinglé, ne JAMAIS passer de viewport séparé |
+| **Patch injecté via `add_init_script()` au lieu d'être embarqué dans la page** | non mesuré comme équivalent — la recette validée = `<script src="/adscore_patch.js">` AVANT le tag Adscore dans le HTML |
+| **MoreLogin (moteur commercial)** avec ou sans spoof WebGL | verdict **bot systématique** (sondes s34/s35/s26/s15 incohérentes). MoreLogin ne passe PAS AdScore — ne pas réessayer |
+| **Lancer sans attendre l'accord du user** | règle de travail : chaque run coûte une visite visible dans le dashboard — 1 run = 1 autorisation explicite |
+
+### ✅ La séquence exacte qui passe (copier telle quelle)
+
+1. `adscore_patch.js` poussé à la racine du site, chargé par `<script src="/adscore_patch.js"></script>` **avant** `<script async src="//c.adsco.re">`
+2. Fingerprint épinglé, **aucun viewport séparé** :
+   ```python
+   fp = generate_fingerprint(window=(1280, 720),
+                             screen=Screen(1920, 1080, 1920, 1040),
+                             os="windows")
+   AsyncCamoufox(headless=False, os="windows", canvas_noise=False,
+                 geoip=True, i_know_what_im_doing=True,
+                 exclude_addons=[DefaultAddons.UBO],
+                 proxy={"server": "http://127.0.0.1:8897"},  # fix NAT double sortie
+                 firefox_user_prefs={...})                   # prefs du README
+   ctx = await browser.new_context(locale="en-US")           # PAS de viewport
+   ```
+3. Sortie = IP directe via le routeur local qui bloque `4.adsco.re` (fix NAT)
+4. `page.goto(url, referer="https://www.google.com/")`, attendre 10 s, 1 clic, 8 s
+5. **15 s de repos entre les runs** (contexte WebGL < 120 ms)
+6. Version Camoufox `official/158.0.1-beta.41` — celle en vigueur aux runs gagnants du 21 nov ; ne pas « mettre à jour » sans tester
+
+### Réponse à la question « le token AdScore encode-t-il le verdict ? »
+
+Non. Structure mesurée sur 36 captures : `{8 chars aléatoires}={BQ??}AAAAAAAACZUA...`.
+- `AAAAAAAACZUA` = **ID d'intégration PopAds, constant** pour tous les verdicts
+- L'octet `BQ??` varie (BQNi/BQNy/BQOC/BQPi/BQQS) mais **ne encode PAS le verdict** :
+  `dk_global_B1` (result:1) partage `BQNy` avec des runs result:0
+- Le verdict est dans la partie signée (indéchiffrable) ou un champ serveur séparé
